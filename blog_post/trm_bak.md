@@ -7,19 +7,17 @@
   3. The whole model reduces to **two states**: current solution (y) + latent reasoning (z).
 
 ##### What to implement first
-The core engine of TRM to grok is `latent_recursion` and `deep_recursion` (See Figure 1). Make sure to pay close attention to where `torch.no_grad()` and `.detach()` are called.
+The core engine of TRM to grok is `latent_recursion` and `deep_recursion` (See Figure 3). Make sure to pay close attention to where `torch.no_grad()` and `.detach()` are called.
 
 ##### Where folks might mess up
 Mixing up detach points (accidentally backprop through deep supervision), mis-implementing the no-grad passes, or treating the halting logit incorrectly (thresholding the wrong thing).
 
 Main problem: LLMs struggle on hard question-answer problems like puzzles (Sudoku)
-Approach: hierarchical reasoning models (hrm) [Wang et al]
+Approach: heirarchical reasoning models (hrm) [Wang et al]
 
 The genius of trm really lands when it's juxtaposed against HRM. simple is better than complex, complex is better than complicated. Don't get me wrong, hrm is still an incredible invention, but it's a bit complicated. 
 
 ## Hierarchical Reasoning Model (HRM): Overview and issues
-
-(Refer to my blog post on HRM for more details concept).
 
 ### Summary
 - Recursive refinement + deep supervision is the real juice
@@ -27,22 +25,27 @@ The genius of trm really lands when it's juxtaposed against HRM. simple is bette
 - ACT adds complexity + extra forward pass
 
 ### Recursive Refinement + Deep supervision
+
 This is where all the magic in HRM happens.
 
-*Recursive refinement* refines two latents, zH and zL, recursively using two, 4-layer transformer networks, $f_L$ and $f_H$.
+*Recursive refinement* is shown in Figure 2 and executes when the `hrm` function is called. "Recursion" just means iterating over the reasoning latents, zH and zL, passing them through the same network repeatedly. The gradients are only computed on the last two refinement steps of the recursion. The reason for the word 'hierarchical' in HRM come from zH and zL. In HRM, zL is the fast-updating / high-frequency latent (updated many times per cycle), while zH is slow-updating / low-frequency (updated less often). Lastly, `hrm` calls two transformer based networks, `L_net` and `H_net`, the high and low frequency networks, respectively. The TRM uses a simpler single-network based architecture.
 
-*Deep supervision* is iterating over a single batch sample within the training loop $N_{sup}$ number of times, repeatedly supervising the prediction, updating the latent $z$, and passing the updated latent to `hrm` on the next go around. See Figure 1 in the HRM post.
+*Deep supervision* is iterating over a single batch sample within the training loop $N_{sup}$ number of times, repeatedly supervising the prediction, updating the latent $z$, and passing the updated latent to `hrm` on the next go around. See Figure 2 in the appendix.
 
 ### Deep Equilibrium (DEQ) and 1-step-gradient approximation
-All you need to know here is the following. **DEQ** is loosely the idea of iterating repeatedly until a result reaches the optimal point, called an *equilibrium*. **1-step-gradient approximation** says that only the learnings from the equilibrium point are needed to optimize the network, we can discard the rest. HRM is motivated by DEQ/1-step-gradient approximation to justify their architecture.
+
+All you need to know here is the following. **DEQ** is loosely the idea of iterating repeatedly until a result reaches the optimal point, called an *equilibrium*, with the proper checks that the proper point has been reached. **1-step-gradient approximation** says that only the learnings from the equilibrium point are need to optimize your network, you can discard the rest. HRM is motivated by DEQ/1-step-gradient approximation to justify their architecture.
 
 #### Concern
+
 The author of TRM says the way HRM is designed doesn't guarantee a fixed point is ever reached: there aren't enough recursions steps and there is no convergence verification-TRM removes this by backpropagating through the full unrolled recursion (for the final pass) while using no-grad passes for refinement.
 
 ### ACT adds complexity
-ACT is what HRM uses to early-stop deep supervision. Otherwise, additional supervision steps are run during training, increasing training time.
+
+ACT is what HRM uses to early-stop deep supervision. Deep supervision runs for $N_{sup} = 16$ number of steps. That's 16 additional supervision steps during training which include the recursive `hrm` call. ACT uses an additional output head of HRM called `Q_head` and the latent (see Figure 2 in appendix) to predict if the target is reached and deep supervising should halt
 
 #### Concern
+
 The author of TRM notes that ACT is implemented by running an additional forward pass (call to `hrm`) on each deep supervision step. That's two calls to `hrm` every iteration.
 
 Also, personally, the implementation of ACT is hard to grok. Namely, `ACT_continue`, which TRM removes all together.
@@ -64,10 +67,8 @@ def latent_recursion(x, y, z, n=6):
 
 def deep_recursion(x, y, z, n=6, T=3):
   """
-  The key idea: do multiple refinement passes without grads
-  to improve state cheaply, then one final unrolled pass with grads to train.
-
-  y = zH; z = zL
+  y = zH
+  z = zL
   """
   with torch.no_grad(): # No gradients
     for j in range(T-1):
@@ -104,7 +105,7 @@ So we can change our confidence by varying $\tau$.
 Just a quick note on this. The datasets are Sudoku-Extreme, Maze-Hard, and ARC-AGI I & II. Consider them all square puzzle grids of initial shape MxM. A batch looks like (B, L=MxM)
 * Sudoku-Extreme: $L = MxM = 9x9$ $\to$ a batch looks like $(B, 81)$
 * Maze-Hard: $L = 30x30$ $\to$ a batch looks like $(B, 900)$
-* ARC-AGI: This one is trickier. The paper says a single training sample has *multiple examples*. Then it says they are *serialized* into a single input sequence. So I'm inferring $L$ is the size of all the flattened examples concatenated together.
+* ARC-AGI: This one is trickier. The paper says a single training sample has *multiple examples*. Then it says they are *serialized* into a single token. So I'm inferring $L$ is the size of all the flattened examples concatenated together.
 
 Then if $x$ is our input, `x = input_embedding(x)` (Figure 1) is called, turning each token into an embedding. Then the data becomes shape (B, L, D).
 
@@ -112,7 +113,7 @@ Then if $x$ is our input, `x = input_embedding(x)` (Figure 1) is called, turning
 
 * No fixed point theorem
 * ACT: No additional forward pass
-* No hierarchical features + single network
+* No heirarchical features + single network
 
 #### No fixed point theorem
 
@@ -125,13 +126,13 @@ TRM solves this by doing the following. 1) defining backpropagating over $n$ num
 So `latent_recursion` is a module you can deploy with/without gradients attached to iteratively refine an answer. Call it as many times as you want without gradients to refine your answer. Then as soon as you want to update weights, attach gradients.
 
 #### ACT: no additional forward pass
-TRM fixes the additional forward pass simply by only learning a halt probability, thus removing the complicated next pass prediction and continue path.
+TRM fixes the additional forward pass simply by only learning a halt probabiliity, thus removing the complicated next pass prediction and continue path.
 
 #### No hierarchical features + single network
 TRM reinterprets $z_H$ as $y$ and $z_L$ as $z$, removing the need to create to latent embeddings from separate networks ($f_L$ and $f_H$), and reducing two networks down to a single network.
 
 #### Attention free architecture
-For tasks where $L \leq D$, like Sudoku-Extreme, TRM uses an MLP-based architecture over a transformer and improves performance from 74.7% to 87.4%.
+For tasks where $L \leq D$, like Sudoku-Extreme, TRM uses an MLP-based architecture over a transformer and imporoves performance from 74.7% to 87.4%.
 
 Also, just a quick implementation detail. An MLP-mixer (token mixer), which could capture global context across tokens would look something like this:
 
@@ -141,7 +142,7 @@ x_t = nn.Linear(L, L)(x_t)      # mixes across tokens, independently per channel
 x   = x_t.transpose(1, 2)        # back to (B, L, D)
 ```
 
-TRM mentions that MLP works with Sudoku because $L = 9x9$, but produces suboptimal results on Maze-Hard because $L = 30x30 = 900$. This is for a couple of reasons. First, 900 is very large compared to the small dataset size. For an MLP-mixer, the number of parameters scales with the number of tokens $L$. This can hurt the model's ability to generalize. TRM uses self-attention to mix tokens for large $L$ because the number of parameters in self-attention scales with $D$ instead of $L$.
+TRM mentions that MLP works with Sudoku because $L = 9x9$, but produces suboptimal results on Maze-Hard because $L = 30x30 = 900$. This is for a couple of reasons. First, 900 is very large compared to the small dataset size. For an MLP-mixer, the number of parameters scales with the number of tokens $L$. This can hurt the model's ability to generalize. TRM uses self-attention to mix tokens for large $L$ because the number of paramters in self-attention scales with $D$ instead of $L$.
 
 #### Remaining improvements
 * Less layers: More MLP layers degrades performance on Sudoku-Extreme.
@@ -151,35 +152,49 @@ TRM mentions that MLP works with Sudoku because $L = 9x9$, but produces suboptim
 
 The author notes time complexity and memory issues of TRM
 1. Increasing $T$ or $n$ leads to "massive" slowdowns because of the complexity of recursion nested in deep supervision
-2. Increasing $n$ can lead to OOM errors because TRM is backpropagating through through the full recursion graph (See Figure 1).
+2. Increasing $n$ can lead to OOM errors because TRM is backpropagating through through the full recursion graph (See Figure 3).
 
 ## Results
 
-#### Improved
-- Sota test accuracy on Sudoku-Extreme $55\% \to 87\%$ and Maze-Hard $75\% \to 85\%$
-- ARC-AGI-1 from $40\% \to 45\%$
-- ARC-AGI-2 from $5\% \to 8\%$
 
-#### Quick notes on the results:
+What to know about the datasets:
+* Sudoku-Extreme is extremely difficult Sudoku puzzles. 423K samples for testing
+* Maze-Hard is 30x30 procedurally generated mazes. Train/test are both of size 1000
+* ARC-AGI-1/ARC-AGI-2 are geometric puzzles
+    * Each puzzle task contains 2-3 example solutions and 1-2 test puzzles to be solved
+    * Easy for humans, hard for AI
+    * ARC-AGI data also augmented with 160 tasks from ConceptARC, a closely related dataset
+* Datasets are small so augmentation is used: Sudoku-Extreme, Maze-Hard, and ARC-AGI all use shuffling or data transformation per example 
+    
+Quick notes on the results:
 * Small datasets → overfitting pressure → why EMA & data augmentation matters
 * Maze/ARC need global context → why attention may dominate there
 * Sudoku has structure that MLP can exploit → why attention might be unnecessary
 
+### Improved
+- Sota test accuracy on Sudoku-Extreme $55\% \to 87\%$ and Maze-Hard $75\% \to 85\%$
+- ARC-AGI-1 from $40\% \to 45\%$
+- ARC-AGI-2 from $5\% \to 8\%$
+
+Should investigate these ^ metrics to understand the datasets
+Good, this is exactly the right thing to zoom in on.
 
 ## My Approach
 
-#### “If I were implementing TRM this week”
+### “If I were implementing TRM this week”
 
 5–8 bullets, like:
 
-* Start with Figure 1 exactly: verify detach/no_grad boundaries before touching architecture.
+* Start with Figure 3 exactly: verify detach/no_grad boundaries before touching architecture.
 * Treat halting head output as a **logit**; threshold at 0 (0.5 prob).
 * Expect OOM as you increase `n`; consider gradient checkpointing or smaller batch.
 * Expect diminishing returns for bigger MLP depth on Sudoku-Extreme; keep it shallow.
 * Use EMA from day 1; small data will overfit fast without it.
 * For Maze/ARC, don’t assume attention-free will hold; test attention early.
 
-#### “Ablations I’d run first (predictions)”
+This takes 15 minutes and instantly separates you from “summary posts.”
+
+### “Ablations I’d run first (predictions)”
 
 Even without running them, list 3–5 ablations and what you expect:
 
@@ -187,3 +202,7 @@ Even without running them, list 3–5 ablations and what you expect:
 * vary `n` vs `T` → which saturates first?
 * remove EMA → instability / worse generalization
 * swap MLP ↔ attention across Sudoku vs Maze/ARC → attention helps on larger-context tasks
+
+
+
+

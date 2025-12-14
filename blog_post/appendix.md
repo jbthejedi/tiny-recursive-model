@@ -1,11 +1,6 @@
 ## Appendix
 
 ## HRM
-#### Details
-There are two "stages" in HRMs.
-
-$[B, L]$, the shape of both inputs and outputs, B is batch size, L is context length.
-$[B, L, D]$, the shape after embedding the input, $D$ is the embedding size.
 
 ### Recursive hierarchical reasoning
 Happens inside the `hrm` function of *Figure 2*
