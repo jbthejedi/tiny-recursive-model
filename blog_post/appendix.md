@@ -19,7 +19,7 @@ low frequency = called less times in the iteration
 
 "Recursion" just means iterating over the latents, passing them through the same network repeatedly. The network produces two latent features $z_L$ that are used as inputs on the next go-around
 
-#### Forward pass of HRM. The `hrm` function (Figure 1)
+#### Forward pass of HRM. The `hrm` function (Figure 2)
 $$
 \begin{aligned}
 x      &\gets f_I(\tilde{x}) \\
@@ -40,7 +40,7 @@ Deep supervision is performing supervised learning on a training sample $N_{sup}
 
 Use $z = z.detach()$ to detach gradients so you don't backprop through the previous step. z is then passed into 
 
-#### Figure 2
+#### Figure 3
 ```python
 for x_input, y_true in train_dl:
     z = z_init
