@@ -1,5 +1,7 @@
 # Hierarchical Reasoning Model (HRM) for builders: recursion, deep supervision, and why ACT is annoying
 
+[Original Paper](https://arxiv.org/abs/2506.21734)
+
 This is my understanding of the concept of HRM, distilled while reading the TRM paper (and cross-checking HRM pseudocode in the paper). I got so annoyed by how challenging it was to understand ACT, that I basically did a whole deep-dive on HRM because of it.
 
 ## Summary

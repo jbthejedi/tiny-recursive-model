@@ -1,9 +1,13 @@
 # Tiny Recursive Model (TRM)
 
+[Original Paper](https://arxiv.org/abs/2510.04871)
+
+I think this is a brilliant piece of work. Especially when juxtaposed with HRM. In the Zen of Python, there's a line that says, "Simple is better than Complex. Complex is better than complicated". Well, this is a significant simplification to the ideas put forth in HRM. Hats off to the author Alexia Jolicoeur-Martineu.
+
 #### TLDR on TRM
 ##### If you remember 3 things
   1. TRM replaces “fixed-point theory + 1-step grad” with “unroll recursion (final pass) + no-grad refinement passes.”
-  2. TRM replaces ACT/Q-learning halting with a simple BCE halting head (no extra forward pass).
+  2. TRM replaces ACT/Q-learning halting with a simple BCE halting head (no "extra forward pass").
   3. The whole model reduces to **two states**: current solution (y) + latent reasoning (z).
 
 ##### What to implement first
@@ -24,12 +28,12 @@ The genius of trm really lands when it's juxtaposed against HRM. simple is bette
 ### Summary
 - Recursive refinement + deep supervision is the real juice
 - HRM’s gradient story is DEQ-ish / 1-step-ish and arguably shaky
-- ACT adds complexity + extra forward pass
+- ACT adds complexity + "extra forward pass"
 
 ### Recursive Refinement + Deep supervision
 This is where all the magic in HRM happens.
 
-*Recursive refinement* refines two latents, zH and zL, recursively using two, 4-layer transformer networks, $f_L$ and $f_H$.
+*Recursive refinement* refines two latents, zH and zL, recursively using two, 4-layer transformer networks, $f_L$ and $f_H$. fL, the high-frequency net, updates zL six times and, fH, the low-frequency net, updates zH twice.
 
 *Deep supervision* is iterating over a single batch sample within the training loop $N_{sup}$ number of times, repeatedly supervising the prediction, updating the latent $z$, and passing the updated latent to `hrm` on the next go around. See Figure 1 in the HRM post.
 
@@ -160,17 +164,14 @@ The author notes time complexity and memory issues of TRM
 - ARC-AGI-1 from $40\% \to 45\%$
 - ARC-AGI-2 from $5\% \to 8\%$
 
-#### Quick notes on the results:
+#### My notes on the results:
 * Small datasets → overfitting pressure → why EMA & data augmentation matters
 * Maze/ARC need global context → why attention may dominate there
-* Sudoku has structure that MLP can exploit → why attention might be unnecessary
-
+* Sudoku has structure that MLP can exploit → why attention might be unnecessary (for Sudoku)
 
 ## My Approach
 
 #### “If I were implementing TRM this week”
-
-5–8 bullets, like:
 
 * Start with Figure 1 exactly: verify detach/no_grad boundaries before touching architecture.
 * Treat halting head output as a **logit**; threshold at 0 (0.5 prob).
@@ -183,7 +184,7 @@ The author notes time complexity and memory issues of TRM
 
 Even without running them, list 3–5 ablations and what you expect:
 
-* remove deep supervision (`N_sup=1`) → big drop
-* vary `n` vs `T` → which saturates first?
-* remove EMA → instability / worse generalization
-* swap MLP ↔ attention across Sudoku vs Maze/ARC → attention helps on larger-context tasks
+* Remove deep supervision (`N_sup=1`) → big drop
+* Vary `n` vs `T` → which saturates first?
+* Remove EMA → instability / worse generalization
+* Swap MLP ↔ attention across Sudoku vs Maze/ARC → attention helps on larger-context tasks
